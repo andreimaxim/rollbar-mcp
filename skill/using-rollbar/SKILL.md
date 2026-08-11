@@ -1,6 +1,16 @@
 ---
 name: using-rollbar
-description: Investigates Rollbar items and occurrences through the read-only Rollbar plugin. Use for production errors, exception triage, stack traces, occurrences, and Rollbar item links or numbers.
+description: Investigates Rollbar items and occurrences through the read-only Rollbar MCP server. Use for production errors, exception triage, stack traces, occurrences, and Rollbar item links or numbers.
+mcpServers:
+  rollbar:
+    command: npx
+    args: ["-y", "@andreimaxim/rollbar-mcp"]
+    env:
+      ROLLBAR_QA_ACCESS_TOKEN: "${ROLLBAR_QA_ACCESS_TOKEN}"
+      ROLLBAR_STAGING_ACCESS_TOKEN: "${ROLLBAR_STAGING_ACCESS_TOKEN}"
+      ROLLBAR_PROD_ACCESS_TOKEN: "${ROLLBAR_PROD_ACCESS_TOKEN}"
+      ROLLBAR_API_BASE_URL: "${ROLLBAR_API_BASE_URL}"
+    includeTools: ["rollbar_list_environments", "rollbar_get"]
 ---
 
 # Using Rollbar
@@ -76,3 +86,5 @@ Fetch one occurrence's complete payload using an occurrence ID:
 ```
 
 Keep the top-level credential `environment` consistent across an investigation. Compare multiple occurrences before claiming a pattern, treat sensitive payload fields carefully, and distinguish Rollbar evidence from source-code inference.
+
+Do not create, modify, resolve, mute, or delete Rollbar data. This MCP server intentionally exposes no mutation tools.
