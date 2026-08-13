@@ -50,6 +50,36 @@ npx -y @andreimaxim/rollbar-mcp
 
 It communicates over standard input and output, so running it directly appears to do nothing while it waits for an MCP client.
 
+## Docker Sandboxes
+
+[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/mcp-gateway/) expose MCP through a host-side gateway (`sbx mcp`). The agent inside the sandbox never talks to this server. Register a local stdio command; `sbx` launches it on the host with your host credentials.
+
+Put the Rollbar tokens in the host environment and register `npx`. The server already discovers every `ROLLBAR_<ENVIRONMENT>_ACCESS_TOKEN`, so qa, staging, prod, or any other profile just work — no image, env-file, or JSON map required:
+
+```bash
+export ROLLBAR_QA_ACCESS_TOKEN="your-qa-read-token"
+export ROLLBAR_STAGING_ACCESS_TOKEN="your-staging-read-token"
+export ROLLBAR_PROD_ACCESS_TOKEN="your-prod-read-token"
+
+sbx mcp add rollbar --command npx --args "-y,@andreimaxim/rollbar-mcp"
+sbx run claude --static-mcp rollbar
+```
+
+`sbx mcp add` has no `--env` flag. The host command inherits the environment of the gateway process. If `rollbar_list_environments` comes back empty, sandboxd did not see those exports (it is a background daemon, not your interactive shell). Point `--command` at a small wrapper that sources them, then execs `npx`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+set -a
+source "$HOME/.config/rollbar-mcp.env"
+set +a
+exec npx -y @andreimaxim/rollbar-mcp
+```
+
+The agent still only sees the MCP tools. Tokens never enter the sandbox.
+
+Use the Docker `--env-file` recipe below only when you want the MCP process itself in a container. Use `sbx secret set-custom` only when the MCP process must run *inside* the sandbox (for example Codex `experimental_environment = "remote"`). That in-sandbox path cannot tell Rollbar environments apart by hostname — they all call `api.rollbar.com` — so each `ROLLBAR_*_ACCESS_TOKEN` needs its own custom secret.
+
 ## Docker
 
 The image speaks the same stdio protocol. Do not pass `-t`; a TTY breaks JSON-RPC on stdin/stdout.
@@ -93,36 +123,6 @@ ROLLBAR_ACCESS_TOKENS={"qa":"your-qa-read-token","prod":"your-prod-read-token"}
 Clients that inject a static `env` block can instead pass `-e VAR` with no value so Docker forwards that variable from the client process. That only works for names the client already declared.
 
 Docker MCP catalogs declare secrets by name and typically treat listed secrets as required. Prefer a single `ROLLBAR_ACCESS_TOKENS` secret there instead of one catalog secret per Rollbar environment.
-
-## Docker Sandboxes
-
-[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/mcp-gateway/) (`sbx`) start an MCP gateway on the host. The agent inside the sandbox never talks to this server directly. Choose the host-side path unless you specifically need the MCP process inside the sandbox.
-
-### Host-side server (recommended)
-
-Local stdio servers registered with `sbx mcp add --command` run on the host, outside sandbox isolation. The sandboxd process does not inherit your shell environment, so do not rely on exported `ROLLBAR_*` variables. Pass credentials with `--env-file`:
-
-```bash
-docker build -t rollbar-mcp .
-sbx mcp add rollbar --command docker --args "run,-i,--rm,--env-file,$HOME/.config/rollbar-mcp.env,rollbar-mcp"
-sbx run claude --name rollbar-demo --static-mcp rollbar
-```
-
-The env file stays on the host. The container sees every `ROLLBAR_*` entry, so `rollbar_list_environments` still reports qa, staging, prod, or any other profile you added. The agent inside the sandbox only sees the MCP tools.
-
-### In-sandbox process
-
-If the MCP must start inside the sandbox (for example Codex `experimental_environment = "remote"`), keep real tokens on the host and inject placeholders per environment. All Rollbar environments share `api.rollbar.com`, so host-based credential matching cannot tell qa from prod. Per-variable custom secrets can, because each placeholder is unique and is replaced when it appears in the outbound `X-Rollbar-Access-Token` header:
-
-```bash
-sbx secret set-custom --host api.rollbar.com --env ROLLBAR_QA_ACCESS_TOKEN
-sbx secret set-custom --host api.rollbar.com --env ROLLBAR_STAGING_ACCESS_TOKEN
-sbx secret set-custom --host api.rollbar.com --env ROLLBAR_PROD_ACCESS_TOKEN
-```
-
-Do not put multiple tokens in `ROLLBAR_ACCESS_TOKENS` for this path. The sandbox would see a placeholder instead of JSON, and the server could not parse it.
-
-Allow `api.rollbar.com` in the sandbox network policy if outbound access is restricted.
 
 ## Amp
 
