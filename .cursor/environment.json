@@ -1,0 +1,4 @@
+{
+  "name": "rollbar-mcp",
+  "install": "npm ci"
+}
