@@ -6,6 +6,7 @@ mcpServers:
     command: npx
     args: ["-y", "@andreimaxim/rollbar-mcp"]
     env:
+      ROLLBAR_ACCESS_TOKENS: "${ROLLBAR_ACCESS_TOKENS}"
       ROLLBAR_QA_ACCESS_TOKEN: "${ROLLBAR_QA_ACCESS_TOKEN}"
       ROLLBAR_STAGING_ACCESS_TOKEN: "${ROLLBAR_STAGING_ACCESS_TOKEN}"
       ROLLBAR_PROD_ACCESS_TOKEN: "${ROLLBAR_PROD_ACCESS_TOKEN}"

@@ -27,6 +27,8 @@ const MAX_OUTPUT_LINES = 2000;
 const MAX_TRUNCATION_NOTICE_BYTES = 256;
 const MAX_REDIRECTS = 5;
 
+const ENVIRONMENT_NAME = /^[a-z0-9_]+$/;
+
 function tokenEnvironmentVariables(env: NodeJS.ProcessEnv): Map<string, string> {
   const variables = new Map<string, string>();
   for (const name of Object.keys(env)) {
@@ -34,6 +36,62 @@ function tokenEnvironmentVariables(env: NodeJS.ProcessEnv): Map<string, string> 
     if (match?.[1]) variables.set(match[1].toLowerCase(), name);
   }
   return variables;
+}
+
+function isUsableSecret(value: string | undefined): value is string {
+  if (!value) return false;
+  const trimmed = value.trim();
+  return trimmed.length > 0 && !/^\$\{[A-Z0-9_]+\}$/.test(trimmed);
+}
+
+function parseAccessTokensJson(raw: string | undefined): Map<string, string> {
+  const tokens = new Map<string, string>();
+  if (!isUsableSecret(raw)) return tokens;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      "ROLLBAR_ACCESS_TOKENS must be a JSON object of environment names to access tokens",
+    );
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      "ROLLBAR_ACCESS_TOKENS must be a JSON object of environment names to access tokens",
+    );
+  }
+
+  for (const [environment, token] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
+    const name = environment.toLowerCase();
+    if (!ENVIRONMENT_NAME.test(name)) {
+      throw new Error(
+        `ROLLBAR_ACCESS_TOKENS has an invalid environment name: ${environment}`,
+      );
+    }
+    if (typeof token !== "string" || token.trim().length === 0) {
+      throw new Error(
+        `ROLLBAR_ACCESS_TOKENS.${name} must be a non-empty string`,
+      );
+    }
+    tokens.set(name, token.trim());
+  }
+  return tokens;
+}
+
+function configuredTokens(env: NodeJS.ProcessEnv): Map<string, string> {
+  const tokens = parseAccessTokensJson(env.ROLLBAR_ACCESS_TOKENS);
+  for (const [environment, variable] of tokenEnvironmentVariables(env)) {
+    const token = env[variable];
+    if (isUsableSecret(token)) tokens.set(environment, token.trim());
+  }
+  return tokens;
+}
+
+function missingTokenMessage(environment: string): string {
+  return `Configure ROLLBAR_${environment.toUpperCase()}_ACCESS_TOKEN or include "${environment}" in ROLLBAR_ACCESS_TOKENS with a read-scoped Rollbar token`;
 }
 
 function normalizedApiBaseUrl(value: string): string {
@@ -102,11 +160,7 @@ export class RollbarClient implements RollbarService {
   }
 
   async listEnvironments(): Promise<string[]> {
-    const environments: string[] = [];
-    for (const [environment, variable] of tokenEnvironmentVariables(this.#env)) {
-      if (this.#env[variable]) environments.push(environment);
-    }
-    return environments.sort();
+    return [...configuredTokens(this.#env).keys()].sort();
   }
 
   async get(
@@ -114,12 +168,9 @@ export class RollbarClient implements RollbarService {
     environment = "prod",
     query?: Record<string, QueryValue>,
   ): Promise<Json> {
-    const tokenVariable = tokenEnvironmentVariables(this.#env).get(environment);
-    const token = tokenVariable ? this.#env[tokenVariable] : undefined;
+    const token = configuredTokens(this.#env).get(environment);
     if (!token) {
-      throw new Error(
-        `Configure ROLLBAR_${environment.toUpperCase()}_ACCESS_TOKEN with a read-scoped Rollbar token`,
-      );
+      throw new Error(missingTokenMessage(environment));
     }
 
     const apiBaseUrl = normalizedApiBaseUrl(

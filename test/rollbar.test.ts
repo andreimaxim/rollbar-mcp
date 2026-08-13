@@ -14,6 +14,97 @@ describe("RollbarClient", () => {
     await expect(client.listEnvironments()).resolves.toEqual(["prod", "qa"]);
   });
 
+  it("discovers environments from ROLLBAR_ACCESS_TOKENS JSON", async () => {
+    const client = new RollbarClient({
+      env: {
+        ROLLBAR_ACCESS_TOKENS: JSON.stringify({
+          QA: "qa-json-token",
+          prod: "prod-json-token",
+        }),
+      },
+    });
+
+    await expect(client.listEnvironments()).resolves.toEqual(["prod", "qa"]);
+  });
+
+  it("lets per-environment variables override ROLLBAR_ACCESS_TOKENS", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true })),
+    );
+    const client = new RollbarClient({
+      env: {
+        ROLLBAR_ACCESS_TOKENS: JSON.stringify({
+          qa: "json-token",
+          staging: "staging-json-token",
+        }),
+        ROLLBAR_QA_ACCESS_TOKEN: "env-token",
+      },
+      fetch: fetchMock,
+    });
+
+    await expect(client.listEnvironments()).resolves.toEqual(["qa", "staging"]);
+    await expect(client.get("/api/1/items", "qa")).resolves.toEqual({
+      ok: true,
+    });
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      headers: { "X-Rollbar-Access-Token": "env-token" },
+    });
+  });
+
+  it("uses JSON tokens for environments without a dedicated variable", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true })),
+    );
+    const client = new RollbarClient({
+      env: {
+        ROLLBAR_ACCESS_TOKENS: JSON.stringify({ staging: "staging-token" }),
+      },
+      fetch: fetchMock,
+    });
+
+    await expect(client.get("/api/1/items", "staging")).resolves.toEqual({
+      ok: true,
+    });
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      headers: { "X-Rollbar-Access-Token": "staging-token" },
+    });
+  });
+
+  it("rejects malformed ROLLBAR_ACCESS_TOKENS without exposing secrets", async () => {
+    const client = new RollbarClient({
+      env: { ROLLBAR_ACCESS_TOKENS: "not-json" },
+    });
+
+    await expect(client.listEnvironments()).rejects.toThrow(
+      "must be a JSON object",
+    );
+    await expect(
+      new RollbarClient({
+        env: { ROLLBAR_ACCESS_TOKENS: JSON.stringify({ prod: "" }) },
+      }).listEnvironments(),
+    ).rejects.toThrow("must be a non-empty string");
+    await expect(
+      new RollbarClient({
+        env: { ROLLBAR_ACCESS_TOKENS: JSON.stringify({ "prod-west": "token" }) },
+      }).listEnvironments(),
+    ).rejects.toThrow("invalid environment name");
+  });
+
+  it("ignores empty or unexpanded ROLLBAR_ACCESS_TOKENS placeholders", async () => {
+    await expect(
+      new RollbarClient({
+        env: {
+          ROLLBAR_ACCESS_TOKENS: "${ROLLBAR_ACCESS_TOKENS}",
+          ROLLBAR_PROD_ACCESS_TOKEN: "prod-token",
+          ROLLBAR_QA_ACCESS_TOKEN: "${ROLLBAR_QA_ACCESS_TOKEN}",
+        },
+      }).listEnvironments(),
+    ).resolves.toEqual(["prod"]);
+    await expect(
+      new RollbarClient({ env: { ROLLBAR_ACCESS_TOKENS: "  " } }).listEnvironments(),
+    ).resolves.toEqual([]);
+  });
+
   it("constructs authenticated GET requests and repeated query parameters", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ result: { id: 123 } })),
@@ -88,6 +179,9 @@ describe("RollbarClient", () => {
     await expect(
       new RollbarClient({ env: {} }).get("/api/1/items", "prod"),
     ).rejects.toThrow("ROLLBAR_PROD_ACCESS_TOKEN");
+    await expect(
+      new RollbarClient({ env: {} }).get("/api/1/items", "prod"),
+    ).rejects.toThrow("ROLLBAR_ACCESS_TOKENS");
     await expect(
       new RollbarClient({
         env: {
