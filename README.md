@@ -64,31 +64,6 @@ exec npx -y @andreimaxim/rollbar-mcp
 
 Prefer this gateway path over starting the MCP inside the sandbox. All Rollbar environments share `api.rollbar.com`, so in-sandbox credential injection cannot tell qa from prod by hostname.
 
-## Docker
-
-An optional stdio image is useful when a client should isolate the MCP process itself. Do not pass `-t`; a TTY breaks JSON-RPC on stdin/stdout.
-
-```bash
-docker build -t rollbar-mcp .
-```
-
-`--env-file` forwards any mix of `ROLLBAR_*` variables without listing each one in client config:
-
-```json
-{
-  "mcpServers": {
-    "rollbar": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm",
-        "--env-file", "/home/you/.config/rollbar-mcp.env",
-        "rollbar-mcp"
-      ]
-    }
-  }
-}
-```
-
 ## Amp
 
 The distributable [`using-rollbar` skill](skill/using-rollbar/SKILL.md) includes the MCP launch configuration and exposes only `rollbar_list_environments` and `rollbar_get`. Install that directory as a project, personal, or workspace skill.
@@ -148,6 +123,5 @@ Repository layout:
 - `src/rollbar.ts` contains credential discovery, request validation, the Rollbar HTTP client, redirect confinement, and bounded output formatting.
 - `src/server.ts` registers the MCP tools and their read-only annotations.
 - `src/index.ts` starts the stdio server.
-- `Dockerfile` builds an optional stdio image for clients that isolate the MCP process.
 - `skill/using-rollbar/SKILL.md` contains the Amp skill and its MCP launch configuration.
 - `test/` contains HTTP-client and protocol-level integration tests.
