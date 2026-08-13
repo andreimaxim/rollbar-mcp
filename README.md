@@ -94,4 +94,5 @@ Repository layout:
 - `src/server.ts` registers the MCP tools and their read-only annotations.
 - `src/index.ts` starts the stdio server.
 - `skill/using-rollbar/SKILL.md` contains the Amp skill and its MCP launch configuration.
+- `skill/write-pr-body/SKILL.md` contains portable instructions for writing pull request bodies. Copy that directory to `.agents/skills/write-pr-body/` or `.cursor/skills/write-pr-body/` in another project, or to the matching folders under `~/.agents/skills/` / `~/.cursor/skills/` to use it everywhere.
 - `test/` contains HTTP-client and protocol-level integration tests.
