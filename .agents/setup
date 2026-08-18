@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Installing npm dependencies from package-lock.json..."
+time npm ci
