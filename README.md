@@ -1,6 +1,6 @@
 # Rollbar MCP
 
-A focused, read-only [Model Context Protocol](https://modelcontextprotocol.io/) server for Rollbar investigations. It works with Amp, Claude Code, Codex, and other clients that support local stdio MCP servers.
+A focused, read-only [Model Context Protocol](https://modelcontextprotocol.io/) server for Rollbar investigations. It works with Amp, Claude Code, Codex, Docker Sandboxes, and other clients that support local stdio MCP servers.
 
 ## Tools
 
@@ -35,6 +35,34 @@ npx -y @andreimaxim/rollbar-mcp
 ```
 
 It communicates over standard input and output, so running it directly appears to do nothing while it waits for an MCP client.
+
+## Docker Sandboxes
+
+[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/mcp-gateway/) expose MCP through a host-side gateway (`sbx mcp`). The agent inside the sandbox never talks to this server. Register a local stdio command; `sbx` launches it on the host, where it can see the same `ROLLBAR_*_ACCESS_TOKEN` variables already used for local clients.
+
+```bash
+export ROLLBAR_QA_ACCESS_TOKEN="your-qa-read-token"
+export ROLLBAR_STAGING_ACCESS_TOKEN="your-staging-read-token"
+export ROLLBAR_PROD_ACCESS_TOKEN="your-prod-read-token"
+
+sbx mcp add rollbar --command npx --args "-y,@andreimaxim/rollbar-mcp"
+sbx run claude --static-mcp rollbar
+```
+
+Multiple environments need no extra protocol. The server discovers every `ROLLBAR_<ENVIRONMENT>_ACCESS_TOKEN` in the host process. Tokens never enter the sandbox.
+
+`sbx mcp add` has no `--env` flag. The host command inherits the environment of the gateway process. If `rollbar_list_environments` comes back empty, sandboxd did not see those exports (it is a background daemon, not your interactive shell). Point `--command` at a small wrapper that sources them, then execs `npx`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+set -a
+source "$HOME/.config/rollbar-mcp.env"
+set +a
+exec npx -y @andreimaxim/rollbar-mcp
+```
+
+Prefer this gateway path over starting the MCP inside the sandbox. All Rollbar environments share `api.rollbar.com`, so in-sandbox credential injection cannot tell qa from prod by hostname.
 
 ## Amp
 
@@ -79,6 +107,8 @@ enabled_tools = ["rollbar_list_environments", "rollbar_get"]
 ```
 
 Forward only the credential environments you use. The `env_vars` list forwards existing variables without placing their values in the configuration file.
+
+When Codex runs inside Docker Sandboxes, register this server with `sbx mcp` on the host instead of `experimental_environment = "remote"`, so the tokens stay in the host gateway process.
 
 ## Development
 
